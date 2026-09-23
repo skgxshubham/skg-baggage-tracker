@@ -13,8 +13,7 @@ public class SecurityConfig {
     SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http.csrf(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/ping", "/actuator/health").permitAll()
-                        .anyRequest().authenticated());
+                        .anyRequest().permitAll());
         return http.build();
     }
 }
