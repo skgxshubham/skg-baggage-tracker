@@ -74,10 +74,15 @@ public class BaggageService {
         return toResponse(baggageRepository.save(baggage));
     }
 
-    public BaggageResponse reportMissing(Long baggageId) {
+    public BaggageResponse reportMissing(Long baggageId, Long requesterUserId) {
         Baggage baggage = getEntityById(baggageId);
-        // MISHANDLED is reachable from any non-terminal state, so we bypass the normal
-        // adjacency check here rather than special-casing it inside the state machine.
+
+        boolean isOwner = baggage.getPassenger().getUser().getId().equals(requesterUserId);
+        if (!isOwner) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "Only the owning passenger can report this baggage missing");
+        }
+
         baggage.setCurrentStatus(BaggageStatus.MISHANDLED);
         baggageRepository.save(baggage);
 
@@ -103,11 +108,16 @@ public class BaggageService {
     }
 
     @Transactional(readOnly = true)
-    public DetailTrackingResponse trackDetail(String tagNumber) {
-        // NOTE: ownership/staff-admin authorization (section 2.3) is not enforced yet —
-        // it goes in during the JWT phase, in the service layer per the design doc.
+    public DetailTrackingResponse trackDetail(String tagNumber, Long requesterUserId, String requesterRole) {
         Baggage baggage = getEntityByTag(tagNumber);
         Passenger passenger = baggage.getPassenger();
+
+        boolean isOwner = passenger.getUser().getId().equals(requesterUserId);
+        boolean isStaffOrAdmin = requesterRole.equals("STAFF") || requesterRole.equals("ADMIN");
+        if (!isOwner && !isStaffOrAdmin) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "You are not authorized to view this baggage's full detail");
+        }
 
         List<CheckpointHistoryItem> history = checkpointRepository
                 .findByBaggageIdOrderByTimestampAsc(baggage.getId())

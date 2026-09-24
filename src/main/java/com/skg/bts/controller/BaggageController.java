@@ -6,6 +6,8 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+import com.skg.bts.security.AuthenticatedUser;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 
 @RestController
 @RequestMapping("/api/baggage")
@@ -26,9 +28,8 @@ public class BaggageController {
     }
 
     @PostMapping("/{id}/report-missing")
-    public BaggageResponse reportMissing(@PathVariable Long id, @Valid @RequestBody ReportMissingRequest req) {
-        // req.requesterUserId() is unused until JWT gives us a real ownership check.
-        return baggageService.reportMissing(id);
+    public BaggageResponse reportMissing(@PathVariable Long id, @AuthenticationPrincipal AuthenticatedUser principal) {
+        return baggageService.reportMissing(id, principal.userId());
     }
 
     @GetMapping("/{tagNumber}/track")
@@ -37,7 +38,8 @@ public class BaggageController {
     }
 
     @GetMapping("/{tagNumber}/track/detail")
-    public DetailTrackingResponse trackDetail(@PathVariable String tagNumber) {
-        return baggageService.trackDetail(tagNumber);
+    public DetailTrackingResponse trackDetail(@PathVariable String tagNumber,
+                                              @AuthenticationPrincipal AuthenticatedUser principal) {
+        return baggageService.trackDetail(tagNumber, principal.userId(), principal.role());
     }
 }
