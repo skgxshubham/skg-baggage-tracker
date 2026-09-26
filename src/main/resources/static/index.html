@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Baggage Tracking — Auth Tester</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+            max-width: 720px;
+            margin: 40px auto;
+            padding: 0 20px;
+            background: #f4f6f8;
+            color: #1a1a1a;
+        }
+        h1 { font-size: 1.4rem; }
+        h2 { font-size: 1.05rem; margin-top: 32px; }
+        .card {
+            background: #fff;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        label { display: block; font-size: 0.85rem; margin: 10px 0 4px; color: #555; }
+        input, select, textarea {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            font-size: 0.9rem;
+        }
+        button {
+            margin-top: 14px;
+            padding: 9px 16px;
+            border: none;
+            border-radius: 5px;
+            background: #1d4ed8;
+            color: #fff;
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+        button:hover { background: #1e40af; }
+        button.secondary { background: #6b7280; }
+        pre {
+            background: #0f172a;
+            color: #e2e8f0;
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .status { font-size: 0.8rem; margin-top: 8px; font-weight: 600; }
+        .status.ok { color: #16a34a; }
+        .status.err { color: #dc2626; }
+        .token-box {
+            font-size: 0.75rem;
+            background: #eef2ff;
+            padding: 8px;
+            border-radius: 5px;
+            word-break: break-all;
+            margin-top: 8px;
+        }
+        .row { display: flex; gap: 10px; }
+        .row > div { flex: 1; }
+    </style>
+</head>
+<body>
+
+<h1>Baggage Tracking System — Auth Tester</h1>
+<p style="color:#555; font-size:0.85rem;">
+    Local dev tool for testing <code>/api/auth/**</code> and protected endpoints without Postman.
+    Nothing here is part of the production API.
+</p>
+
+<div class="card">
+    <h2>Register</h2>
+    <label>Name</label>
+    <input id="reg-name" value="Test User">
+    <div class="row">
+        <div>
+            <label>Email</label>
+            <input id="reg-email" value="test.user@example.com">
+        </div>
+        <div>
+            <label>Phone</label>
+            <input id="reg-phone" value="9876500000">
+        </div>
+    </div>
+    <label>Password</label>
+    <input id="reg-password" type="password" value="Passenger@123">
+    <button onclick="register()">Register</button>
+    <div id="reg-status"></div>
+</div>
+
+<div class="card">
+    <h2>Login</h2>
+    <label>Email</label>
+    <input id="login-email" value="test.user@example.com">
+    <label>Password</label>
+    <input id="login-password" type="password" value="Passenger@123">
+    <button onclick="login()">Login</button>
+    <div id="login-status"></div>
+    <div id="token-box" class="token-box" style="display:none;"></div>
+</div>
+
+<div class="card">
+    <h2>Current Session</h2>
+    <p style="font-size:0.85rem;">
+        Token in use: <strong id="current-user">none</strong>
+    </p>
+    <button class="secondary" onclick="clearToken()">Clear stored token</button>
+</div>
+
+<div class="card">
+    <h2>Try a protected endpoint</h2>
+    <label>Method</label>
+    <select id="test-method">
+        <option>GET</option>
+        <option>POST</option>
+    </select>
+    <label>Path (e.g. /api/airports, /api/admin/baggage/mishandled)</label>
+    <input id="test-path" value="/api/airports">
+    <label>Body (JSON, optional — only used for POST)</label>
+    <textarea id="test-body" rows="4" placeholder='{"code":"DXB","name":"Dubai Intl","city":"Dubai"}'></textarea>
+    <button onclick="callApi()">Send</button>
+    <div id="test-status"></div>
+    <pre id="test-response">Response will appear here…</pre>
+</div>
+
+<script>
+    const TOKEN_KEY = 'bts_token';
+    const USER_KEY = 'bts_user';
+
+    function saveSession(token, user) {
+        sessionStorage.setItem(TOKEN_KEY, token);
+        sessionStorage.setItem(USER_KEY, JSON.stringify(user));
+        renderSession();
+    }
+
+    function clearToken() {
+        sessionStorage.removeItem(TOKEN_KEY);
+        sessionStorage.removeItem(USER_KEY);
+        renderSession();
+    }
+
+    function renderSession() {
+        const user = JSON.parse(sessionStorage.getItem(USER_KEY) || 'null');
+        document.getElementById('current-user').textContent =
+            user ? `${user.name} (${user.role}) — userId ${user.userId}` : 'none';
+    }
+
+    function setStatus(elId, message, ok) {
+        const el = document.getElementById(elId);
+        el.textContent = message;
+        el.className = 'status ' + (ok ? 'ok' : 'err');
+    }
+
+    async function register() {
+        const body = {
+            name: document.getElementById('reg-name').value,
+            email: document.getElementById('reg-email').value,
+            phone: document.getElementById('reg-phone').value,
+            password: document.getElementById('reg-password').value
+        };
+        try {
+            const res = await fetch('/api/auth/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || res.statusText);
+            setStatus('reg-status', `Registered as ${data.role}. Now log in below.`, true);
+        } catch (e) {
+            setStatus('reg-status', 'Error: ' + e.message, false);
+        }
+    }
+
+    async function login() {
+        const body = {
+            email: document.getElementById('login-email').value,
+            password: document.getElementById('login-password').value
+        };
+        try {
+            const res = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || res.statusText);
+
+            saveSession(data.token, data);
+            setStatus('login-status', `Logged in as ${data.role}`, true);
+
+            const box = document.getElementById('token-box');
+            box.style.display = 'block';
+            box.textContent = data.token;
+        } catch (e) {
+            setStatus('login-status', 'Error: ' + e.message, false);
+        }
+    }
+
+    async function callApi() {
+        const method = document.getElementById('test-method').value;
+        const path = document.getElementById('test-path').value;
+        const rawBody = document.getElementById('test-body').value.trim();
+        const token = sessionStorage.getItem(TOKEN_KEY);
+
+        const headers = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = 'Bearer ' + token;
+
+        const options = { method, headers };
+        if (method === 'POST' && rawBody) options.body = rawBody;
+
+        try {
+            const res = await fetch(path, options);
+            const text = await res.text();
+            let pretty;
+            try { pretty = JSON.stringify(JSON.parse(text), null, 2); } catch { pretty = text; }
+
+            document.getElementById('test-response').textContent = pretty;
+            setStatus('test-status', `${res.status} ${res.statusText}`, res.ok);
+        } catch (e) {
+            setStatus('test-status', 'Error: ' + e.message, false);
+            document.getElementById('test-response').textContent = '';
+        }
+    }
+
+    renderSession();
+</script>
+
+</body>
+</html>

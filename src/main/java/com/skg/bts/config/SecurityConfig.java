@@ -43,6 +43,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/baggage/*/track").permitAll()
                         .requestMatchers("/actuator/health").permitAll()
+                        .requestMatchers("/", "/index.html", "/css/**", "/js/**", "/favicon.ico").permitAll()
 
                         // Admin-only
                         .requestMatchers(HttpMethod.POST, "/api/airports", "/api/flights").hasRole("ADMIN")
