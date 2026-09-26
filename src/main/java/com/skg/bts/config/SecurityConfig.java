@@ -46,6 +46,7 @@ public class SecurityConfig {
                         .requestMatchers("/", "/index.html", "/css/**", "/js/**", "/favicon.ico").permitAll()
 
                         // Admin-only
+                        // git push test
                         .requestMatchers(HttpMethod.POST, "/api/airports", "/api/flights").hasRole("ADMIN")
 
                         // Staff or Admin
