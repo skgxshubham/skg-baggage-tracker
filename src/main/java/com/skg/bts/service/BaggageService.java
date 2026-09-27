@@ -28,6 +28,8 @@ public class BaggageService {
     private final BaggageStateMachine stateMachine;
     private final PassengerService passengerService;
     private final FlightService flightService;
+    private final BaggageCacheService  cacheService;
+    private final BaggageCacheTtlPolicy ttlPolicy;
 
     public BaggageResponse register(BaggageRegisterRequest req) {
         Passenger passenger = passengerService.getEntityById(req.passengerId());
@@ -50,6 +52,13 @@ public class BaggageService {
                 .notes("Baggage registered at check-in")
                 .build());
 
+        // Write-through: populate the cache the moment the bag exists,
+        // so the very first tracking read is already a cache hit.
+        CachedBaggageStatus cached = new CachedBaggageStatus(
+                baggage.getCurrentStatus(), baggage.getCurrentLocation(),
+                baggage.getUpdatedAt(), baggage.getFlight().getFlightNo());
+        cacheService.put(baggage.getTagNumber(), cached, ttlPolicy.ttlFor(baggage.getCurrentStatus()));
+
         return toResponse(baggage);
     }
 
@@ -68,10 +77,18 @@ public class BaggageService {
         if (req.location() != null) {
             baggage.setCurrentLocation(req.location());
         }
-        // TODO (Day 8): update the Redis cache here in the same flow.
+        Baggage saved = baggageRepository.save(baggage);
+
+        // Write-through: update the cache in the same flow as the DB write,
+        // right after the DB commit succeeds.
+        CachedBaggageStatus cached = new CachedBaggageStatus(
+                saved.getCurrentStatus(), saved.getCurrentLocation(),
+                saved.getUpdatedAt(), saved.getFlight().getFlightNo());
+        cacheService.put(saved.getTagNumber(), cached, ttlPolicy.ttlFor(saved.getCurrentStatus()));
+
         // TODO (Week 3-4): publish a baggage-events Kafka message here.
 
-        return toResponse(baggageRepository.save(baggage));
+        return toResponse(saved);
     }
 
     public BaggageResponse reportMissing(Long baggageId, Long requesterUserId) {
@@ -84,27 +101,40 @@ public class BaggageService {
         }
 
         baggage.setCurrentStatus(BaggageStatus.MISHANDLED);
-        baggageRepository.save(baggage);
+        Baggage saved = baggageRepository.save(baggage);
 
         checkpointRepository.save(BaggageCheckpoint.builder()
-                .baggage(baggage)
+                .baggage(saved)
                 .checkpointType(BaggageStatus.MISHANDLED)
-                .location(baggage.getCurrentLocation())
+                .location(saved.getCurrentLocation())
                 .notes("Reported missing by passenger")
                 .build());
 
-        return toResponse(baggage);
+        // Write-through: MISHANDLED gets the long TTL from the policy.
+        CachedBaggageStatus cached = new CachedBaggageStatus(
+                saved.getCurrentStatus(), saved.getCurrentLocation(),
+                saved.getUpdatedAt(), saved.getFlight().getFlightNo());
+        cacheService.put(saved.getTagNumber(), cached, ttlPolicy.ttlFor(saved.getCurrentStatus()));
+
+        return toResponse(saved);
     }
 
     @Transactional(readOnly = true)
     public PublicTrackingResponse trackPublic(String tagNumber) {
+        CachedBaggageStatus cached = cacheService.get(tagNumber);
+        if (cached != null) {
+            return new PublicTrackingResponse(cached.status(), cached.location(), cached.lastUpdated(), cached.flightNo());
+        }
+
+        // Cache miss (cold cache, eviction, or Redis unavailable) — fall back to
+        // Postgres and repopulate the cache so subsequent reads are fast again.
         Baggage baggage = getEntityByTag(tagNumber);
-        return new PublicTrackingResponse(
-                baggage.getCurrentStatus(),
-                baggage.getCurrentLocation(),
-                baggage.getUpdatedAt(),
-                baggage.getFlight().getFlightNo()
-        );
+        CachedBaggageStatus fresh = new CachedBaggageStatus(
+                baggage.getCurrentStatus(), baggage.getCurrentLocation(),
+                baggage.getUpdatedAt(), baggage.getFlight().getFlightNo());
+        cacheService.put(tagNumber, fresh, ttlPolicy.ttlFor(baggage.getCurrentStatus()));
+
+        return new PublicTrackingResponse(fresh.status(), fresh.location(), fresh.lastUpdated(), fresh.flightNo());
     }
 
     @Transactional(readOnly = true)
