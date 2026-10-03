@@ -30,6 +30,7 @@ public class BaggageService {
     private final FlightService flightService;
     private final BaggageCacheService  cacheService;
     private final BaggageCacheTtlPolicy ttlPolicy;
+    private final OutboxService outboxService;
 
     public BaggageResponse register(BaggageRegisterRequest req) {
         Passenger passenger = passengerService.getEntityById(req.passengerId());
@@ -59,6 +60,12 @@ public class BaggageService {
                 baggage.getUpdatedAt(), baggage.getFlight().getFlightNo());
         cacheService.put(baggage.getTagNumber(), cached, ttlPolicy.ttlFor(baggage.getCurrentStatus()));
 
+        BaggageEvent event = new BaggageEvent(
+                baggage.getId(), baggage.getTagNumber(), baggage.getCurrentStatus(),
+                baggage.getCurrentLocation(), baggage.getUpdatedAt(),
+                baggage.getPassenger().getUser().getId());
+        outboxService.enqueue(event);
+
         return toResponse(baggage);
     }
 
@@ -86,7 +93,11 @@ public class BaggageService {
                 saved.getUpdatedAt(), saved.getFlight().getFlightNo());
         cacheService.put(saved.getTagNumber(), cached, ttlPolicy.ttlFor(saved.getCurrentStatus()));
 
-        // TODO (Week 3-4): publish a baggage-events Kafka message here.
+        BaggageEvent event = new BaggageEvent(
+                saved.getId(), saved.getTagNumber(), saved.getCurrentStatus(),
+                saved.getCurrentLocation(), saved.getUpdatedAt(),
+                saved.getPassenger().getUser().getId());
+        outboxService.enqueue(event);
 
         return toResponse(saved);
     }
@@ -115,6 +126,12 @@ public class BaggageService {
                 saved.getCurrentStatus(), saved.getCurrentLocation(),
                 saved.getUpdatedAt(), saved.getFlight().getFlightNo());
         cacheService.put(saved.getTagNumber(), cached, ttlPolicy.ttlFor(saved.getCurrentStatus()));
+
+        BaggageEvent event = new BaggageEvent(
+                saved.getId(), saved.getTagNumber(), saved.getCurrentStatus(),
+                saved.getCurrentLocation(), saved.getUpdatedAt(),
+                saved.getPassenger().getUser().getId());
+        outboxService.enqueue(event);
 
         return toResponse(saved);
     }
